@@ -1,16 +1,16 @@
 <!DOCTYPE html>
 <html lang="it">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover" />
   <title>Quarto Attore 3D — Desert Journey (PWA)</title>
-  <meta name="theme-color" content="#0b1022">
-  <meta name="description" content="Journey-like 3D poetic desert — PWA mobile by pezzaliAPP / Il Quarto Attore.">
-  <link rel="manifest" href="manifest.json">
-  <link rel="apple-touch-icon" href="icons/icon-192.png">
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <link rel="stylesheet" href="styles.css">
+  <meta name="theme-color" content="#0b1022" />
+  <meta name="description" content="Journey-like 3D poetic desert — PWA mobile by pezzaliAPP / Il Quarto Attore." />
+  <link rel="manifest" href="manifest.json" />
+  <link rel="apple-touch-icon" href="icons/icon-192.png" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
   <header id="topbar">
@@ -23,17 +23,26 @@
 
   <canvas id="scene"></canvas>
 
-  <div id="hud">
-    <div class="pill">Trascina per guardare • Tap per galleggiare</div>
-  </div>
+  <div id="hud"><div class="pill">Trascina per guardare • Tap per galleggiare</div></div>
 
-  <script type="module" src="app.js?v=102"></script>
+  <!-- Three.js UMD (globale window.THREE) -->
+  <script src="https://cdn.jsdelivr.net/npm/three@0.162.0/build/three.min.js"></script>
+
+  <!-- NIENTE type="module": app.js usa window.THREE e ha fallback 2D -->
+  <script src="app.js?v=113"></script>
+
   <script>
+    // Disattiva SW con ?sw=off per debug
     const qs = new URLSearchParams(location.search);
-    if ('serviceWorker' in navigator && qs.get('sw')!=='off') {
-      window.addEventListener('load', () => {
-        navigator.serviceWorker.register('./service-worker.js?v=102').catch(console.error);
-      });
+    if ('serviceWorker' in navigator) {
+      if (qs.get('sw') === 'off') {
+        navigator.serviceWorker.getRegistrations().then(rs => rs.forEach(r => r.unregister()));
+        caches && caches.keys && caches.keys().then(keys => keys.forEach(k => caches.delete(k)));
+      } else {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('./service-worker.js?v=113').catch(console.error);
+        });
+      }
     }
   </script>
 </body>
