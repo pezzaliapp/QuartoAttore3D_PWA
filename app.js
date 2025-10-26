@@ -26,35 +26,35 @@ btnMute.addEventListener('click', ()=>{
 });
 
 // Renderer
-const renderer = new THREE.WebGLRenderer({canvas, antialias:true, alpha:true});
+const renderer = new THREE.WebGLRenderer({canvas, antialias:true, alpha:false});
+renderer.setClearColor(0x0b1022, 1);
 renderer.setPixelRatio(Math.min(2, window.devicePixelRatio||1));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
-renderer.shadowMap.enabled = false;
 
 // Scene & Camera
 const scene = new THREE.Scene();
-scene.fog = new THREE.Fog(0x0b1022, 30, 150);
+scene.fog = new THREE.Fog(0x0b1022, 40, 180);
 
 const camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 0.1, 400);
-camera.position.set(0, 2.2, 6);
+camera.position.set(0, 2.4, 7);
 
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 controls.dampingFactor = 0.06;
 controls.enablePan = false;
 controls.minDistance = 2;
-controls.maxDistance = 12;
+controls.maxDistance = 14;
 controls.maxPolarAngle = Math.PI*0.55;
 
 // Lights
-const hemi = new THREE.HemisphereLight(0xffe9c4, 0x0b1022, 0.7);
+const hemi = new THREE.HemisphereLight(0xffe9c4, 0x0b1022, 0.6);
 scene.add(hemi);
-const dir = new THREE.DirectionalLight(0xfff3d2, 1.0);
+const dir = new THREE.DirectionalLight(0xfff3d2, 0.9);
 dir.position.set(4,6,2);
 scene.add(dir);
 
-// Sky gradient
+// Sky gradient (simple)
 const skyGeo = new THREE.SphereGeometry(200,32,16);
 const skyMat = new THREE.ShaderMaterial({
   side: THREE.BackSide,
@@ -63,148 +63,90 @@ const skyMat = new THREE.ShaderMaterial({
   fragmentShader:`varying vec3 vPos; uniform vec3 top; uniform vec3 bottom;
     void main(){ float h=normalize(vPos).y*0.5+0.5; gl_FragColor=vec4(mix(bottom,top, pow(h,1.2)),1.0); }`
 });
-const sky = new THREE.Mesh(skyGeo, skyMat);
-scene.add(sky);
+scene.add(new THREE.Mesh(skyGeo, skyMat));
 
-// Dunes (vertex-displaced plane + standard shading)
-const duneRes = 256;
+// Dunes — custom shader (robust, no Three chunks)
+const duneRes = 200;
 const duneGeo = new THREE.PlaneGeometry(200, 200, duneRes, duneRes);
 duneGeo.rotateX(-Math.PI/2);
+
 const duneMat = new THREE.ShaderMaterial({
-  lights: true,
-  fog: true,
-  uniforms: THREE.UniformsUtils.merge([THREE.ShaderLib.standard.uniforms, {
+  fog:true,
+  uniforms:{
     uTime:{value:0},
-    uAmp:{value:0.6},
-    uWind:{value:new THREE.Vector2(0.4, 0.2)},
+    uAmp:{value:0.7},
+    uWind:{value:new THREE.Vector2(0.35, 0.18)},
     uColorA:{value:new THREE.Color(0xEBC88C)},
-    uColorB:{value:new THREE.Color(0xAE8C55)}
-  }]),
+    uColorB:{value:new THREE.Color(0xAE8C55)},
+    uDir:{value:new THREE.Vector3(0.5,0.8,0.2).normalize()},
+    uFogColor:{value:new THREE.Color(0x0b1022)},
+    uFogNear:{value:40.0},
+    uFogFar:{value:180.0}
+  },
   vertexShader:`
-    #define STANDARD
-    varying vec3 vViewPosition;
-    #include <common>
-    #include <uv_pars_vertex>
-    #include <displacementmap_pars_vertex>
-    #include <color_pars_vertex>
-    #include <fog_pars_vertex>
-    #include <morphtarget_pars_vertex>
-    #include <skinning_pars_vertex>
-    #include <logdepthbuf_pars_vertex>
-    #include <clipping_planes_pars_vertex>
-
-    uniform float uTime;
-    uniform float uAmp;
-    uniform vec2 uWind;
-
-    // Simplex noise 2D (fast, compact)
+    uniform float uTime; uniform float uAmp; uniform vec2 uWind;
+    varying vec3 vNormalW; varying vec3 vPosW; varying float vShade;
+    // simplex 2D
     vec3 mod289(vec3 x){ return x - floor(x * (1.0 / 289.0)) * 289.0; }
     vec2 mod289(vec2 x){ return x - floor(x * (1.0 / 289.0)) * 289.0; }
     vec3 permute(vec3 x){ return mod289(((x*34.0)+1.0)*x); }
     float snoise(vec2 v){
-      const vec4 C = vec4(0.211324865405187,0.366025403784439,
-                          -0.577350269189626,0.024390243902439);
-      vec2 i  = floor(v + dot(v, C.yy) );
-      vec2 x0 = v -   i + dot(i, C.xx);
-      vec2 i1 = (x0.x > x0.y) ? vec2(1.0, 0.0) : vec2(0.0, 1.0);
-      vec4 x12 = x0.xyxy + C.xxzz;
-      x12.xy -= i1;
-      i = mod289(i);
-      vec3 p = permute( permute( i.y + vec3(0.0, i1.y, 1.0 ))
-          + i.x + vec3(0.0, i1.x, 1.0 ));
-      vec3 m = max(0.5 - vec3(dot(x0,x0), dot(x12.xy,x12.xy), dot(x12.zw,x12.zw)), 0.0);
-      m = m*m ; m = m*m ;
-      vec3 x = 2.0 * fract(p * C.www) - 1.0;
-      vec3 h = abs(x) - 0.5;
-      vec3 ox = floor(x + 0.5);
-      vec3 a0 = x - ox;
-      m *= 1.79284291400159 - 0.85373472095314 * ( a0*a0 + h*h );
-      vec3 g;
-      g.x  = a0.x  * x0.x  + h.x  * x0.y;
-      g.yz = a0.yz * x12.xz + h.yz * x12.yw;
-      return 130.0 * dot(m, g);
+      const vec4 C = vec4(0.211324865405187,0.366025403784439,-0.577350269189626,0.024390243902439);
+      vec2 i = floor(v + dot(v, C.yy)); vec2 x0 = v - i + dot(i, C.xx);
+      vec2 i1 = (x0.x > x0.y) ? vec2(1.0,0.0) : vec2(0.0,1.0);
+      vec4 x12 = x0.xyxy + C.xxzz; x12.xy -= i1; i = mod289(i);
+      vec3 p = permute( permute( i.y + vec3(0.0,i1.y,1.0)) + i.x + vec3(0.0,i1.x,1.0) );
+      vec3 m = max(0.5-vec3(dot(x0,x0), dot(x12.xy,x12.xy), dot(x12.zw,x12.zw)), 0.0);
+      m = m*m; m = m*m;
+      vec3 x = 2.0*fract(p*0.0243902439)-1.0; vec3 h = abs(x)-0.5;
+      vec3 ox = floor(x+0.5); vec3 a0 = x-ox;
+      m *= 1.79284291400159 - 0.85373472095314*(a0*a0+h*h);
+      vec3 g; g.x = a0.x*x0.x + h.x*x0.y; g.yz = a0.yz*x12.xz + h.yz*x12.yw;
+      return 130.0*dot(m,g);
     }
-
-    #include <lights_pars_begin>
-
     void main(){
-      #include <uv_vertex>
-      #include <color_vertex>
-      #include <morphcolor_vertex>
-      #include <beginnormal_vertex>
-        // approximate normal via gradient of noise
-        vec3 pos = position;
-        float n = snoise(pos.xz*0.08 + uWind*0.03*uTime) + 0.5*snoise(pos.xz*0.2 + uWind*0.06*uTime);
-        pos.y += n*uAmp;
-      #include <defaultnormal_vertex>
-      #include <begin_vertex>
-        transformed = pos;
-      #include <displacementmap_vertex>
-      #include <morphtarget_vertex>
-      #include <skinning_vertex>
-      #include <project_vertex>
-      #include <logdepthbuf_vertex>
-      #include <clipping_planes_vertex>
-      vViewPosition = - mvPosition.xyz;
-      #include <worldpos_vertex>
-      #include <fog_vertex>
+      vec3 pos = position;
+      float f1 = snoise(pos.xz*0.08 + uWind*0.03*uTime);
+      float f2 = snoise(pos.xz*0.20 + uWind*0.06*uTime)*0.5;
+      float n = f1 + f2;
+      pos.y += n*uAmp;
+
+      // central differences for normal
+      float e = 0.6;
+      float nx = (snoise((pos.xz+vec2(e,0.0))*0.08 + uWind*0.03*uTime) + 0.5*snoise((pos.xz+vec2(e,0.0))*0.20 + uWind*0.06*uTime)
+                -snoise((pos.xz-vec2(e,0.0))*0.08 + uWind*0.03*uTime) - 0.5*snoise((pos.xz-vec2(e,0.0))*0.20 + uWind*0.06*uTime))*uAmp/e;
+      float nz = (snoise((pos.xz+vec2(0.0,e))*0.08 + uWind*0.03*uTime) + 0.5*snoise((pos.xz+vec2(0.0,e))*0.20 + uWind*0.06*uTime)
+                -snoise((pos.xz-vec2(0.0,e))*0.08 + uWind*0.03*uTime) - 0.5*snoise((pos.xz-vec2(0.0,e))*0.20 + uWind*0.06*uTime))*uAmp/e;
+      vec3 nrm = normalize(vec3(-nx, 1.0, -nz));
+
+      vec4 wp = modelMatrix * vec4(pos,1.0);
+      vPosW = wp.xyz;
+      vNormalW = normalize(mat3(modelMatrix) * nrm);
+      gl_Position = projectionMatrix * viewMatrix * wp;
     }
   `,
   fragmentShader:`
-    #define STANDARD
-    uniform vec3 diffuse;
-    uniform float opacity;
-    varying vec3 vViewPosition;
-    #include <common>
-    #include <packing>
-    #include <dithering_pars_fragment>
-    #include <color_pars_fragment>
-    #include <uv_pars_fragment>
-    #include <map_pars_fragment>
-    #include <alphamap_pars_fragment>
-    #include <aomap_pars_fragment>
-    #include <lightmap_pars_fragment>
-    #include <emissivemap_pars_fragment>
-    #include <bsdfs>
-    #include <cube_uv_reflection_fragment>
-    #include <envmap_common_pars_fragment>
-    #include <envmap_physical_pars_fragment>
-    #include <fog_pars_fragment>
-    #include <lights_pars_begin>
-    #include <lights_physical_pars_fragment>
-    #include <shadowmap_pars_fragment>
-    #include <bumpmap_pars_fragment>
-    #include <normalmap_pars_fragment>
-    #include <clearcoat_pars_fragment>
-    #include <roughnessmap_pars_fragment>
-    #include <metalnessmap_pars_fragment>
-    #include <logdepthbuf_pars_fragment>
-    #include <clipping_planes_pars_fragment>
-
-    uniform vec3 uColorA;
-    uniform vec3 uColorB;
-
+    precision highp float;
+    uniform vec3 uColorA; uniform vec3 uColorB;
+    uniform vec3 uDir;
+    uniform vec3 uFogColor; uniform float uFogNear; uniform float uFogFar;
+    varying vec3 vNormalW; varying vec3 vPosW;
     void main(){
-      #include <clipping_planes_fragment>
-      vec4 diffuseColor = vec4(mix(uColorB, uColorA, 0.6), 1.0);
-      ReflectedLight reflectedLight = ReflectedLight( vec3( 0.0 ), vec3( 0.0 ), vec3( 0.0 ), vec3( 0.0 ) );
-      vec3 totalEmissiveRadiance = vec3(0.0);
-      #include <logdepthbuf_fragment>
-      #include <lights_physical_fragment>
-      #include <lights_fragment_begin>
-      #include <lights_fragment_end>
-      vec3 outgoingLight = reflectedLight.directDiffuse + reflectedLight.indirectDiffuse;
-      gl_FragColor = vec4( outgoingLight * diffuseColor.rgb, 1.0 );
-      #include <tonemapping_fragment>
-      #include <encodings_fragment>
-      #include <fog_fragment>
-      #include <premultiplied_alpha_fragment>
-      #include <dithering_fragment>
+      vec3 base = mix(uColorB, uColorA, 0.6);
+      float lambert = max(dot(normalize(vNormalW), normalize(uDir)), 0.0);
+      float light = 0.35 + 0.75*lambert;
+      vec3 col = base * light;
+
+      // simple fog
+      float d = length(vPosW - cameraPosition);
+      float f = smoothstep(uFogNear, uFogFar, d);
+      col = mix(col, uFogColor, f);
+
+      gl_FragColor = vec4(col, 1.0);
     }
   `
 });
 const dunes = new THREE.Mesh(duneGeo, duneMat);
-dunes.receiveShadow = false;
 scene.add(dunes);
 
 // Traveler (capsule)
@@ -214,14 +156,14 @@ const traveler = new THREE.Mesh(travelerGeo, travelerMat);
 traveler.position.set(0, 0.8, 0);
 scene.add(traveler);
 
-// Subtle glow (billboard)
+// Subtle glow
 const glowMat = new THREE.SpriteMaterial({ color:0xffe9c4, opacity:0.25, transparent:true });
 const glow = new THREE.Sprite(glowMat);
 glow.scale.set(1.6,1.6,1.6);
 traveler.add(glow);
 
 // Wind particles
-const P = 1500;
+const P = 1200;
 const pGeo = new THREE.BufferGeometry();
 const pos = new Float32Array(P*3);
 const vel = new Float32Array(P);
@@ -233,13 +175,12 @@ for (let i=0;i<P;i++){
 }
 pGeo.setAttribute('position', new THREE.BufferAttribute(pos,3));
 pGeo.setAttribute('vel', new THREE.BufferAttribute(vel,1));
-const pMat = new THREE.PointsMaterial({ size:0.06, sizeAttenuation:true, color:0xffffff, transparent:true, opacity:0.35 });
+const pMat = new THREE.PointsMaterial({ size:0.06, sizeAttenuation:true, transparent:true, opacity:0.35 });
 const wind = new THREE.Points(pGeo, pMat);
 scene.add(wind);
 
-// Optional: load external GLB (put your file path below or drop via input later)
+// Optional GLB
 const loader = new GLTFLoader();
-// Example usage (commented):
 // loader.load('./assets/your_model.glb', (g)=>{ g.scene.position.set(0,0.1,-1.2); g.scene.scale.set(0.5,0.5,0.5); scene.add(g.scene); });
 
 // Touch to float forward
@@ -252,7 +193,7 @@ function onTap(){
 }
 window.addEventListener('pointerdown', onTap, {passive:true});
 
-// Basic ambient wind noise (WebAudio)
+// Audio wind
 function initAudio(){
   if (audioCtx) return;
   audioCtx = new (window.AudioContext||window.webkitAudioContext)();
@@ -260,19 +201,15 @@ function initAudio(){
   const noise = audioCtx.createScriptProcessor(bufferSize, 1, 1);
   noise.onaudioprocess = (e)=>{
     const out = e.outputBuffer.getChannelData(0);
-    for(let i=0;i<out.length;i++){
-      out[i] = (Math.random()*2-1)*0.12; // white noise
-    }
+    for(let i=0;i<out.length;i++){ out[i] = (Math.random()*2-1)*0.12; }
   };
-  const biquad = audioCtx.createBiquadFilter(); // shape
-  biquad.type = 'bandpass'; biquad.frequency.value = 600; biquad.Q.value = 0.6;
+  const biquad = audioCtx.createBiquadFilter(); biquad.type='bandpass'; biquad.frequency.value=600; biquad.Q.value=0.6;
   const gain = audioCtx.createGain(); gain.gain.value = muted ? 0.0 : 0.25;
   noise.connect(biquad).connect(gain).connect(audioCtx.destination);
   windSource = { noise, gain };
 }
 document.addEventListener('touchstart', ()=>{ initAudio(); }, {passive:true});
 
-// Resize
 function onResize(){
   renderer.setSize(window.innerWidth, window.innerHeight, false);
   camera.aspect = window.innerWidth/window.innerHeight;
@@ -289,11 +226,11 @@ function tick(){
 
   // traveler gentle bob + glide
   traveler.position.y = 0.8 + Math.sin(t*1.8)*0.06;
-  const dir = new THREE.Vector3(0,0,-1).applyQuaternion(camera.quaternion);
+  const dirV = new THREE.Vector3(0,0,-1).applyQuaternion(camera.quaternion);
   if (glide > 0.0005){
     const step = 0.035 * glide;
-    traveler.position.addScaledVector(dir, step);
-    camera.position.addScaledVector(dir, step);
+    traveler.position.addScaledVector(dirV, step);
+    camera.position.addScaledVector(dirV, step);
     controls.target.lerp(traveler.position, 0.04);
     glide *= 0.985;
   } else {
