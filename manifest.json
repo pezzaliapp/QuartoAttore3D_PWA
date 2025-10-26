@@ -1,7 +1,7 @@
 {
   "name": "Quarto Attore 3D — Desert Journey",
   "short_name": "QA 3D",
-  "description": "Journey-like 3D poetic desert — PWA mobile by pezzaliAPP / Il Quarto Attore.",
+  "description": "Journey-like 3D poetic desert — PWA mobile.",
   "start_url": "./index.html",
   "display": "standalone",
   "background_color": "#0b1022",

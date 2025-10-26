@@ -1,4 +1,4 @@
-// Quarto Attore 3D — app.js v1.1.3 (no module, UMD Three + fallback Canvas2D)
+// Quarto Attore 3D — app.js v1.1.4 (UMD Three + Canvas2D fallback, tested)
 
 const canvas = document.getElementById('scene');
 const btnInstall = document.getElementById('btnInstall');
@@ -6,7 +6,7 @@ const btnMute = document.getElementById('btnMute');
 const QS = new URLSearchParams(location.search);
 const FORCE = (QS.get('force') || '').toLowerCase(); // 'webgl' | '2d' | ''
 
-function note(msg, ms=4000){
+function note(msg, ms=4200){
   const el = document.createElement('div');
   el.style.cssText = 'position:fixed;left:8px;bottom:8px;background:#1a2039cc;color:#fff;border:1px solid #2b356e;padding:8px 10px;border-radius:8px;font:12px system-ui;z-index:99999';
   el.textContent = msg; document.body.appendChild(el);
@@ -24,7 +24,7 @@ btnInstall?.addEventListener('click', async ()=>{
   deferredPrompt=null; btnInstall.style.display='none';
 });
 
-// Audio vento (anche in 2D)
+// Audio vento
 let audioCtx, windSource, muted = true;
 btnMute?.addEventListener('click', ()=>{
   muted=!muted; btnMute.textContent = muted ? 'Mute' : 'Sound ON';
@@ -47,28 +47,21 @@ function initAudio(){
 }
 document.addEventListener('touchstart', ()=>initAudio(), {passive:true});
 
-// ───────────────────────────────
-// Fallback Canvas2D (sempre OK)
-// ───────────────────────────────
 function startCanvas2D(){
   const ctx = canvas.getContext('2d', { alpha:false });
   const DPR = Math.min(2, window.devicePixelRatio||1);
   function resize(){ canvas.width=Math.floor(innerWidth*DPR); canvas.height=Math.floor(innerHeight*DPR); }
   resize(); addEventListener('resize', resize);
-
   let t=0, glide=0, lastTap=0;
   const P = 900, parts = new Float32Array(P*3);
   for(let i=0;i<P;i++){ parts[3*i]=(Math.random()-0.5)*80; parts[3*i+1]=Math.random()*2.5+0.2; parts[3*i+2]=(Math.random()-0.5)*80; }
   addEventListener('pointerdown', ()=>{ const now=performance.now(); glide=Math.min(1,glide+((now-lastTap<300)?0.3:0.15)); lastTap=now; }, {passive:true});
   function n2(x,y){ return Math.sin(x*0.17+y*0.123+t*0.2)*0.5 + Math.sin(x*0.05+y*0.07+t*0.12)*0.5; }
-
   (function frame(){
     requestAnimationFrame(frame); t+=0.016;
     const w=canvas.width,h=canvas.height;
-
     const g = ctx.createLinearGradient(0,0,0,h); g.addColorStop(0,'#172042'); g.addColorStop(1,'#0b1022');
     ctx.fillStyle=g; ctx.fillRect(0,0,w,h);
-
     function dune(scale, amp, yBase, a='#EBC88C', b='#AE8C55'){
       ctx.beginPath();
       for(let x=0;x<w;x+=2){
@@ -83,13 +76,11 @@ function startCanvas2D(){
       ctx.fillStyle=gg; ctx.globalAlpha=0.95; ctx.fill(); ctx.globalAlpha=1.0;
     }
     dune(0.6,0.8,h*0.55); dune(0.9,1.0,h*0.68); dune(1.3,1.2,h*0.82);
-
     const cx=w*0.5, cy=h*0.6 + Math.sin(t*1.8)*6*DPR;
     ctx.beginPath(); ctx.arc(cx,cy,14*DPR,0,Math.PI*2); ctx.fillStyle='#f6edd7'; ctx.fill();
     const glow=ctx.createRadialGradient(cx,cy,0,cx,cy,26*DPR);
     glow.addColorStop(0,'rgba(255,233,196,0.25)'); glow.addColorStop(1,'rgba(255,233,196,0)'); 
     ctx.fillStyle=glow; ctx.beginPath(); ctx.arc(cx,cy,26*DPR,0,Math.PI*2); ctx.fill();
-
     ctx.fillStyle='rgba(255,255,255,0.35)';
     for(let i=0;i<P;i++){
       let x=parts[3*i], z=parts[3*i+2];
@@ -103,12 +94,9 @@ function startCanvas2D(){
   note('Modalità compatibilità (Canvas2D)');
 }
 
-// ───────────────────────────────
-// WebGL Three UMD (globale THREE)
-// ───────────────────────────────
 function startWebGL(){
-  if (!window.THREE || !canvas) throw new Error('THREE non disponibile');
-
+  if (!window.THREE) throw new Error('THREE non presente');
+  const THREE = window.THREE;
   const DPR = Math.min(2, window.devicePixelRatio||1);
   const renderer = new THREE.WebGLRenderer({ canvas, antialias:true, alpha:false, powerPreference:'high-performance' });
   renderer.setClearColor(0x0b1022,1); renderer.setPixelRatio(DPR);
@@ -117,31 +105,28 @@ function startWebGL(){
   renderer.domElement.addEventListener('webglcontextlost', e=>{ e.preventDefault(); note('WebGL context lost'); startCanvas2D(); }, false);
 
   const scene = new THREE.Scene(); scene.fog = new THREE.Fog(0x0b1022, 40, 180);
-
   const camera = new THREE.PerspectiveCamera(60, innerWidth/innerHeight, 0.1, 400);
   camera.position.set(0,2.4,7);
 
-  // Controllo camera minimale (drag)
-  const pivot = new THREE.Object3D(); scene.add(pivot);
-  pivot.add(camera);
+  // Minimal camera control
+  const pivot = new THREE.Object3D(); scene.add(pivot); pivot.add(camera);
   let dragging=false, lx=0, ly=0, yaw=0, pitch=-0.2;
   function onDown(e){ dragging=true; lx=e.clientX||e.touches?.[0]?.clientX||0; ly=e.clientY||e.touches?.[0]?.clientY||0; }
   function onMove(e){
     if(!dragging) return;
     const x=e.clientX||e.touches?.[0]?.clientX||0, y=e.clientY||e.touches?.[0]?.clientY||0;
-    yaw -= (x-lx)*0.003; pitch -= (y-ly)*0.002; pitch = Math.max(-1.0, Math.min(0.6, pitch));
-    lx=x; ly=y;
+    yaw -= (x-lx)*0.003; pitch -= (y-ly)*0.002; pitch = Math.max(-1.0, Math.min(0.6, pitch)); lx=x; ly=y;
   }
   function onUp(){ dragging=false; }
-  window.addEventListener('pointerdown', onDown, {passive:true});
-  window.addEventListener('pointermove', onMove, {passive:true});
-  window.addEventListener('pointerup', onUp, {passive:true});
-  window.addEventListener('pointercancel', onUp, {passive:true});
+  addEventListener('pointerdown', onDown, {passive:true});
+  addEventListener('pointermove', onMove, {passive:true});
+  addEventListener('pointerup', onUp, {passive:true});
+  addEventListener('pointercancel', onUp, {passive:true});
 
   scene.add(new THREE.HemisphereLight(0xffe9c4, 0x0b1022, 0.6));
   const dir = new THREE.DirectionalLight(0xfff3d2, 0.9); dir.position.set(4,6,2); scene.add(dir);
 
-  // cielo
+  // Sky
   const skyGeo = new THREE.SphereGeometry(200,32,16);
   const skyMat = new THREE.ShaderMaterial({
     side: THREE.BackSide,
@@ -152,7 +137,7 @@ function startWebGL(){
   });
   scene.add(new THREE.Mesh(skyGeo, skyMat));
 
-  // dune (shader semplice, niente chunk)
+  // Dunes
   const duneRes = 200;
   const duneGeo = new THREE.PlaneGeometry(200,200,duneRes,duneRes); duneGeo.rotateX(-Math.PI/2);
   let duneMat;
@@ -195,9 +180,7 @@ function startWebGL(){
           float nz=(snoise((pos.xz+vec2(0.,e))*0.08 + uWind*0.03*uTime)+0.5*snoise((pos.xz+vec2(0.,e))*0.20 + uWind*0.06*uTime)
                    -snoise((pos.xz-vec2(0.,e))*0.08 + uWind*0.03*uTime)-0.5*snoise((pos.xz-vec2(0.,e))*0.20 + uWind*0.06*uTime))*uAmp/e;
           vec3 nrm=normalize(vec3(-nx,1.,-nz));
-          vec4 wp=modelMatrix*vec4(pos,1.); vPosW=wp.xyz; 
-          // normalMatrix è fornita da Three
-          vNormalW=normalize(normalMatrix*nrm);
+          vec4 wp=modelMatrix*vec4(pos,1.); vPosW=wp.xyz; vNormalW=normalize(normalMatrix*nrm);
           gl_Position=projectionMatrix*viewMatrix*wp;
         }`,
       fragmentShader:`
@@ -214,7 +197,7 @@ function startWebGL(){
         }`
     });
   }catch(e){
-    console.warn('ShaderMaterial error, fallback standard:', e);
+    console.warn('ShaderMaterial error, fallback MeshStandardMaterial:', e);
     duneGeo.computeVertexNormals();
     duneMat = new THREE.MeshStandardMaterial({ color:0xC9A873, roughness:0.95, metalness:0.0 });
     note('Shader non disponibile — materiale standard');
@@ -222,7 +205,6 @@ function startWebGL(){
   const dunes = new THREE.Mesh(duneGeo, duneMat);
   scene.add(dunes);
 
-  // viaggiatore
   const traveler = new THREE.Mesh(
     new THREE.CapsuleGeometry(0.18,0.5,8,16),
     new THREE.MeshStandardMaterial({ color:0xf6edd7, emissive:0x111111, roughness:0.4 })
@@ -230,7 +212,6 @@ function startWebGL(){
   const glow = new THREE.Sprite(new THREE.SpriteMaterial({ color:0xffe9c4, opacity:0.25, transparent:true }));
   glow.scale.set(1.6,1.6,1.6); traveler.add(glow);
 
-  // vento particelle
   const P=1200, pGeo=new THREE.BufferGeometry();
   const pos=new Float32Array(P*3), vel=new Float32Array(P);
   for(let i=0;i<P;i++){ pos[3*i]=(Math.random()-0.5)*80; pos[3*i+1]=Math.random()*2.5+0.2; pos[3*i+2]=(Math.random()-0.5)*80; vel[i]=0.2+Math.random()*0.6; }
@@ -239,27 +220,18 @@ function startWebGL(){
   const wind = new THREE.Points(pGeo, new THREE.PointsMaterial({ size:0.06, sizeAttenuation:true, transparent:true, opacity:0.35 }));
   scene.add(wind);
 
-  // input: tap per avanzare
-  let glide=0, lastTap=0;
-  window.addEventListener('pointerdown', ()=>{
+  let glide=0, lastTap=0; addEventListener('pointerdown', ()=>{
     const now=performance.now(); glide=Math.min(1, glide + (now-lastTap<300?0.3:0.15)); lastTap=now;
   }, {passive:true});
 
-  function resize(){
-    renderer.setSize(innerWidth, innerHeight, false);
-    camera.aspect = innerWidth/innerHeight; camera.updateProjectionMatrix();
-  }
+  function resize(){ renderer.setSize(innerWidth, innerHeight, false); camera.aspect = innerWidth/innerHeight; camera.updateProjectionMatrix(); }
   addEventListener('resize', resize);
 
-  let t=0;
-  (function loop(){
-    requestAnimationFrame(loop);
-    t+=0.016;
+  let t=0; (function loop(){
+    requestAnimationFrame(loop); t+=0.016;
     if (duneMat.uniforms && duneMat.uniforms.uTime){ duneMat.uniforms.uTime.value = t; }
-
-    // applica yaw/pitch al pivot (camera child)
-    pivot.rotation.y = yaw;
-    pivot.rotation.x = pitch;
+    // apply yaw/pitch to pivot (global variables in closure)
+    pivot.rotation.y = yaw; pivot.rotation.x = pitch;
 
     traveler.position.y = 0.8 + Math.sin(t*1.8)*0.06;
     const dirV = new THREE.Vector3(0,0,-1).applyEuler(pivot.rotation);
@@ -270,7 +242,6 @@ function startWebGL(){
       glide*=0.985;
     }
 
-    // vento
     const positions=wind.geometry.attributes.position.array, vels=wind.geometry.attributes.vel.array;
     for(let i=0;i<P;i++){
       positions[3*i]+=0.02+0.04*vels[i];
@@ -283,10 +254,10 @@ function startWebGL(){
     renderer.render(scene,camera);
   })();
 
-  note('Modalità WebGL (Three.js UMD)');
+  note('Modalità WebGL (Three.js)');
 }
 
-// BOOT: forza 2D/WebGL via query, altrimenti tenta WebGL e ripiega in 2D
+// Boot
 (function boot(){
   if (FORCE==='2d'){ startCanvas2D(); return; }
   if (FORCE==='webgl'){ try{ startWebGL(); }catch(e){ console.warn(e); startCanvas2D(); } return; }
