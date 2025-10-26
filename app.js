@@ -1,10 +1,21 @@
-import * as THREE from 'https://unpkg.com/three@0.162.0/build/three.module.js';
-import { OrbitControls } from 'https://unpkg.com/three@0.162.0/examples/jsm/controls/OrbitControls.js';
-import { GLTFLoader } from 'https://unpkg.com/three@0.162.0/examples/jsm/loaders/GLTFLoader.js';
+import * as THREE from 'https://unpkg.com/three@0.162.0/build/three.module.js?v=102';
+import { OrbitControls } from 'https://unpkg.com/three@0.162.0/examples/jsm/controls/OrbitControls.js?v=102';
+import { GLTFLoader } from 'https://unpkg.com/three@0.162.0/examples/jsm/loaders/GLTFLoader.js?v=102';
 
 const canvas = document.getElementById('scene');
 const btnInstall = document.getElementById('btnInstall');
 const btnMute = document.getElementById('btnMute');
+
+function showError(msg){
+  const el = document.createElement('div');
+  el.style.position='fixed'; el.style.left='8px'; el.style.bottom='8px';
+  el.style.padding='8px 10px'; el.style.borderRadius='8px';
+  el.style.background='#300c'; el.style.color='#fff'; el.style.font='12px system-ui';
+  el.style.zIndex='1000'; el.textContent = msg;
+  document.body.appendChild(el);
+  setTimeout(()=>el.remove(), 5000);
+}
+
 
 let audioCtx, windSource, muted = true, deferredPrompt;
 
@@ -69,7 +80,12 @@ scene.add(new THREE.Mesh(skyGeo, skyMat));
 const duneRes = 200;
 const duneGeo = new THREE.PlaneGeometry(200, 200, duneRes, duneRes);
 duneGeo.rotateX(-Math.PI/2);
+// Fallback flag via URL (?basic=1) and auto fallback if shader fails
+const QS = new URLSearchParams(location.search);
+const USE_BASIC = QS.get('basic')==='1';
 
+
+let dunes; let duneMat; try { if (USE_BASIC) throw new Error('basic-mode');
 const duneMat = new THREE.ShaderMaterial({
   fog:true,
   uniforms:{
@@ -84,6 +100,7 @@ const duneMat = new THREE.ShaderMaterial({
     uFogFar:{value:180.0}
   },
   vertexShader:`
+    precision mediump float;
     uniform float uTime; uniform float uAmp; uniform vec2 uWind;
     varying vec3 vNormalW; varying vec3 vPosW; varying float vShade;
     // simplex 2D
@@ -121,12 +138,12 @@ const duneMat = new THREE.ShaderMaterial({
 
       vec4 wp = modelMatrix * vec4(pos,1.0);
       vPosW = wp.xyz;
-      vNormalW = normalize(mat3(modelMatrix) * nrm);
+      vNormalW = normalize(normalMatrix * nrm);
       gl_Position = projectionMatrix * viewMatrix * wp;
     }
   `,
   fragmentShader:`
-    precision highp float;
+    precision mediump float;
     uniform vec3 uColorA; uniform vec3 uColorB;
     uniform vec3 uDir;
     uniform vec3 uFogColor; uniform float uFogNear; uniform float uFogFar;
@@ -148,6 +165,13 @@ const duneMat = new THREE.ShaderMaterial({
 });
 const dunes = new THREE.Mesh(duneGeo, duneMat);
 scene.add(dunes);
+} catch(e){
+  console.warn('Dune shader fallback:', e.message);
+  duneGeo.computeVertexNormals();
+  const basicMat = new THREE.MeshStandardMaterial({ color:0xC9A873, roughness:0.95, metalness:0.0 });
+  dunes = new THREE.Mesh(duneGeo, basicMat);
+  scene.add(dunes);
+}
 
 // Traveler (capsule)
 const travelerGeo = new THREE.CapsuleGeometry(0.18, 0.5, 8, 16);
@@ -222,7 +246,7 @@ let t = 0;
 function tick(){
   requestAnimationFrame(tick);
   t += 0.016;
-  dunes.material.uniforms.uTime.value = t;
+  if (dunes.material.uniforms && dunes.material.uniforms.uTime) { dunes.material.uniforms.uTime.value = t; }
 
   // traveler gentle bob + glide
   traveler.position.y = 0.8 + Math.sin(t*1.8)*0.06;

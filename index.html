@@ -27,11 +27,12 @@
     <div class="pill">Trascina per guardare • Tap per galleggiare</div>
   </div>
 
-  <script type="module" src="app.js"></script>
+  <script type="module" src="app.js?v=102"></script>
   <script>
-    if ('serviceWorker' in navigator) {
+    const qs = new URLSearchParams(location.search);
+    if ('serviceWorker' in navigator && qs.get('sw')!=='off') {
       window.addEventListener('load', () => {
-        navigator.serviceWorker.register('./service-worker.js').catch(console.error);
+        navigator.serviceWorker.register('./service-worker.js?v=102').catch(console.error);
       });
     }
   </script>
